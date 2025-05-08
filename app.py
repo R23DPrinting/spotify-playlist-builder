@@ -30,13 +30,19 @@ if "token_info" not in st.session_state:
     redirect_response = st.text_input("Paste the full URL you were redirected to after login:")
     if redirect_response:
         parsed_code = sp_oauth.parse_response_code(redirect_response)
-        token_info = sp_oauth.get_access_token(parsed_code)
+        token_info = sp_oauth.get_access_token(parsed_code, as_dict=True)
         st.session_state.token_info = token_info
 else:
     token_info = st.session_state.token_info
 
+# --- VALID TOKEN CHECK ---
 if token_info:
-    sp = spotipy.Spotify(auth=token_info['access_token'])
+    if sp_oauth.is_token_expired(token_info):
+        token_info = sp_oauth.refresh_access_token(token_info['refresh_token'])
+        st.session_state.token_info = token_info
+
+    access_token = token_info['access_token']
+    sp = spotipy.Spotify(auth=access_token)
     st.write("# 🎶 Custom Playlist Generator")
 
     # --- USER INPUT ---
@@ -57,7 +63,12 @@ if token_info:
         def get_genre_tracks(genre, limit=5):
             try:
                 results = sp.search(q=genre, type='playlist', limit=limit)
-                playlists = results.get('playlists', {}).get('items', [])
+                if results is None or 'playlists' not in results:
+                    st.warning(f"No results for genre: {genre}")
+                    return []
+                playlists = results['playlists'].get('items', []) or []
+                if not playlists:
+                    st.warning(f"No playlists found for genre: {genre}")
                 tracks = set()
                 for pl in playlists:
                     items = sp.playlist_items(pl['id'], limit=50).get('items', [])
